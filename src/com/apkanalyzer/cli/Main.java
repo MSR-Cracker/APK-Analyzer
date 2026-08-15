@@ -1,79 +1,37 @@
 package com.apkanalyzer.cli;
 
+import com.apkanalyzer.analyzer.BillingAnalyzer;
+import com.apkanalyzer.analyzer.NativeDetector;
 import com.apkanalyzer.dex.DexScanner;
-import com.apkanalyzer.filter.MethodFilter;
-import com.apkanalyzer.model.MethodInfo;
-import com.apkanalyzer.pipeline.AutoSetup;
-import com.apkanalyzer.pipeline.DccPipeline;
+import java.io.File;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.stream.Collectors;
+public class Main {
+    public static void main(String[] args) {
+        System.out.println("==================================================");
+        System.out.println("   🛡️ APK SECURITY & PURCHASE LOGIC ANALYZER      ");
+        System.out.println("==================================================");
 
-public final class Main {
-    private Main() {
-    }
-
-    public static void main(String[] args) throws Exception {
-        System.out.println("dev - @msr_cracker");
-        CliOptions options = CliOptions.parse(args);
-        if (options.help) {
-            CliOptions.printHelp();
-            return;
-        }
-        if (options.autoSetup) {
-            AutoSetup.ensure(Path.of("."));
+        if (args.length < 1) {
+            System.out.println("Usage: java -jar APKAnalyzer.jar <path-to-apk>");
             return;
         }
 
-        MethodFilter filter = options.filterPath == null
-                ? MethodFilter.matchAll()
-                : MethodFilter.fromFile(options.filterPath);
-
-        DexScanner scanner = new DexScanner(filter);
-        List<MethodInfo> methods = scanner.scan(options.inputPath);
-
-        if (options.listOnly) {
-            for (MethodInfo method : methods) {
-                System.out.println(method.toDexSignature());
-            }
+        File apkFile = new File(args[0]);
+        if (!apkFile.exists()) {
+            System.out.println("[-] Error: APK file not found at " + args[0]);
+            return;
         }
 
-        if (options.reportPath != null) {
-            writeReport(options.reportPath, methods);
-        }
+        System.out.println("[+] Target APK: " + apkFile.getName());
+        
+        // 1. Scan Protections and Shared Libraries
+        NativeDetector nativeDetector = new NativeDetector();
+        nativeDetector.analyzeNativeLibs(apkFile);
 
-        List<MethodInfo> wrappable = methods.stream()
-                .filter(MethodInfo::canWrapNative)
-                .collect(Collectors.toList());
+        // 2. Scan DEX & Billing Verification Logic
+        BillingAnalyzer billingAnalyzer = new BillingAnalyzer();
+        billingAnalyzer.scanBillingLogic(apkFile);
 
-        if (options.outputPath != null) {
-            new DccPipeline(Path.of(".")).run(options.inputPath, options.outputPath, wrappable);
-            System.out.printf("Wrote protected APK/DEX: %s%n", options.outputPath);
-        }
-
-        System.out.printf("dexlib2 scan complete: %d method(s) matched, %d method(s) wrappable%n",
-                methods.size(), wrappable.size());
-    }
-
-    private static void writeReport(Path reportPath, List<MethodInfo> methods) throws IOException {
-        Path parent = reportPath.toAbsolutePath().getParent();
-        if (parent != null) {
-            Files.createDirectories(parent);
-        }
-
-        StringBuilder out = new StringBuilder();
-        for (MethodInfo method : methods) {
-            out.append(method.dexEntry())
-                    .append('\t')
-                    .append(method.accessFlags())
-                    .append('\t')
-                    .append(method.toDexSignature())
-                    .append(System.lineSeparator());
-        }
-        Files.writeString(reportPath, out.toString(), StandardCharsets.UTF_8);
+        System.out.println("\n[✔] Analysis Completed Successfully.");
     }
 }
